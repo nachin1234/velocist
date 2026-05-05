@@ -64,7 +64,7 @@ void setup() {
 
   pinMode(LED, OUTPUT);
 
-  SerialBT.begin("kawai");
+  SerialBT.begin("proyectaso");
 
   unsigned long start = millis();
   while (millis() - start < 6000) {
