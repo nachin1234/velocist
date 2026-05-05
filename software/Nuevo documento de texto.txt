@@ -1,0 +1,172 @@
+#include <QTRSensors.h>
+#include "BluetoothSerial.h"
+
+BluetoothSerial SerialBT;
+
+float Kp = 0.2;
+float Kd = 3.6;
+
+int maxSpeed = 150;
+int baseSpeed = 100;
+
+#define NUM_SENSORS 8
+#define TIMEOUT 2500
+#define EMITTER_PIN 22
+
+QTRSensors qtr;
+uint16_t sensorValues[NUM_SENSORS];
+
+const uint8_t sensorPins[NUM_SENSORS] = {27, 26, 25, 33, 32, 35, 34, 38};
+
+const int M1A = 16;
+const int M1B = 17;
+const int M2A = 18;
+const int M2B = 19;
+
+const int PWM1 = 4;
+const int PWM2 = 21;
+
+const int LED = 13;
+const int SWITCH = 14;
+
+const int pwmFreq = 5000;
+const int pwmResolution = 8;
+const int pwmChannel1 = 0;
+const int pwmChannel2 = 1;
+
+int lastError = 0;
+bool running = false;
+bool buttonState = HIGH;   
+bool lastButtonState = HIGH; 
+
+void attachLed(bool state) {
+  digitalWrite(LED, state ? HIGH : LOW);
+}
+
+void setup() {
+  qtr.setTypeAnalog();
+  qtr.setSensorPins(sensorPins, NUM_SENSORS);
+  qtr.setEmitterPin(EMITTER_PIN);
+
+  pinMode(M1A, OUTPUT);
+  pinMode(M1B, OUTPUT);
+  pinMode(M2A, OUTPUT);
+  pinMode(M2B, OUTPUT);
+
+  ledcSetup(pwmChannel1, pwmFreq, pwmResolution);
+  ledcSetup(pwmChannel2, pwmFreq, pwmResolution);
+  ledcAttachPin(PWM1, pwmChannel1);
+  ledcAttachPin(PWM2, pwmChannel2);
+
+  pinMode(SWITCH, INPUT_PULLUP);
+  buttonState = digitalRead(SWITCH);
+  lastButtonState = buttonState;
+
+  pinMode(LED, OUTPUT);
+
+  SerialBT.begin("kawai");
+
+  unsigned long start = millis();
+  while (millis() - start < 6000) {
+    qtr.calibrate();
+    attachLed(millis() % 400 < 200); 
+  }
+  attachLed(true);
+}
+
+void loop() {
+  handleButton();
+  handleBluetooth();
+
+  if (running) {
+    lineFollowPID();
+  } else {
+    stopMotors();
+  }
+}
+
+void lineFollowPID() {
+  int position = qtr.readLineWhite(sensorValues);
+  int error = position - 3500;
+
+  int motorSpeed = Kp * error + Kd * (error - lastError);
+  lastError = error;
+
+  motorSpeed = constrain(motorSpeed, -maxSpeed, maxSpeed);
+
+  int rightMotorSpeed = baseSpeed - motorSpeed;
+  int leftMotorSpeed = baseSpeed + motorSpeed;
+
+  rightMotorSpeed = constrain(rightMotorSpeed, 0, maxSpeed);
+  leftMotorSpeed = constrain(leftMotorSpeed, 0, maxSpeed);
+
+  setMotor(leftMotorSpeed, rightMotorSpeed);
+}
+
+void setMotor(int leftSpeed, int rightSpeed) {
+  digitalWrite(M1A, HIGH);
+  digitalWrite(M1B, LOW);
+
+  digitalWrite(M2A, HIGH);
+  digitalWrite(M2B, LOW);
+
+  ledcWrite(pwmChannel1, leftSpeed);
+  ledcWrite(pwmChannel2, rightSpeed);
+}
+
+void stopMotors() {
+  ledcWrite(pwmChannel1, 0);
+  ledcWrite(pwmChannel2, 0);
+}
+
+void handleButton() {
+  
+  buttonState = digitalRead(SWITCH);
+
+  if (lastButtonState == HIGH && buttonState == LOW) {
+    running = !running; 
+
+    if (!running) {
+      stopMotors();
+    }
+
+    attachLed(true);
+  }
+
+  lastButtonState = buttonState;
+}
+
+void handleBluetooth() {
+  if (SerialBT.available()) {
+    String input = SerialBT.readStringUntil('\n');
+    input.trim();
+
+    if (input.equalsIgnoreCase("START")) {
+      running = true;
+      SerialBT.println("Robot arrancando...");
+      attachLed(true);
+
+    } else if (input.equalsIgnoreCase("STOP")) {
+      running = false;
+      stopMotors();
+      SerialBT.println("Robot detenido.");
+      attachLed(true);
+
+    } else if (input.startsWith("KP=")) {
+      Kp = input.substring(3).toFloat();
+      SerialBT.println("Kp actualizado: " + String(Kp));
+
+    } else if (input.startsWith("KD=")) {
+      Kd = input.substring(3).toFloat();
+      SerialBT.println("Kd actualizado: " + String(Kd));
+
+    } else if (input.startsWith("BASE=")) {
+      baseSpeed = input.substring(5).toInt();
+      SerialBT.println("BaseSpeed actualizado: " + String(baseSpeed));
+
+    } else if (input.startsWith("MAX=")) {
+      maxSpeed = input.substring(4).toInt();
+      SerialBT.println("MaxSpeed actualizado: " + String(maxSpeed));
+    }
+  }
+}
