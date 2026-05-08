@@ -16,7 +16,7 @@ int baseSpeed = 100;
 QTRSensors qtr;
 uint16_t sensorValues[NUM_SENSORS];
 
-const uint8_t sensorPins[NUM_SENSORS] = {27, 26, 25, 33, 32, 35, 34, 38};
+const uint8_t sensorPins[NUM_SENSORS] = {27, 26, 25, 33, 32, 35, 34, 39};
 
 const int M1A = 16;
 const int M1B = 17;
